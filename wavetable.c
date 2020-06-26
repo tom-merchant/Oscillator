@@ -16,6 +16,7 @@
 #include <fftw3.h>
 #include <assert.h>
 #include <complex.h>
+#include <sndfile.h>
 #include "AudioUtils.h"
 
 
@@ -423,6 +424,164 @@ void save_wavetable(wavetable_mipmap* wt, const char* path)
 }
 
 //TODO: save and load wavetables in other wavetable formats
+
+long get_serum_wavetable_framesize ( char* path )
+{
+    FILE *wtfile = fopen(path, "rb");
+    int found = 0;
+    long sz;
+
+    int morph_table = 0;
+
+    fseek(wtfile, 0L, SEEK_END);
+    sz = ftell(wtfile);
+    rewind (wtfile);
+
+    char c;
+    char c1[5];
+
+    char clmdata[48];
+
+    while (!found && ftell (wtfile) < sz)
+    {
+        fread (&c, 1, 1, wtfile);
+
+        if ( c == 0x63 )
+        {
+            fread ( &c1, 1, 2,wtfile );
+
+            if ( c1[0] == 0x6C && c1[1] == 0x6D )
+            {
+                found = 1;
+            }
+        }
+    }
+
+    fread (c1, 1, 5, wtfile);
+    fread (clmdata, 1, 48, wtfile);
+
+    fclose ( wtfile );
+
+    return strtol (&clmdata[3], NULL, 10);
+}
+
+long serum_wavetable_get_num_tables ( char* path )
+{
+    long framesize = get_serum_wavetable_framesize ( path );
+    long ntables = 0;
+
+    SF_INFO info = {};
+
+    SNDFILE* wtfile = sf_open (path, SFM_READ, &info);
+
+    ntables = info.frames / framesize;
+
+    sf_close (wtfile);
+
+    return ntables;
+}
+
+morph_wavetable_mipmap* load_serum_morph_wavetable ( char* path, int tables_per_octave, int oversample,
+        int tables_per_morph, long samplerate )
+{
+    long framesize = get_serum_wavetable_framesize ( path );
+    long ntables = serum_wavetable_get_num_tables ( path );
+    long i, j;
+
+    morph_wavetable_harmonics mwh;
+
+    mwh.num_wavetables = ntables;
+    mwh.morph_style = MORPH_LINEAR;
+    mwh.morph_env = 0;
+    mwh.spectrums = calloc (ntables, sizeof (wavetable_harmonics));
+    mwh.num_harmonics = framesize;
+    mwh.tables_per_octave = tables_per_octave;
+    mwh.oversample = oversample;
+    mwh.tables_per_morph = tables_per_morph;
+
+    SF_INFO info = {};
+    SNDFILE* wtfile = sf_open (path, SFM_READ, &info);
+
+    fftw_complex *freqs = fftw_alloc_complex ( framesize + 1 );
+    double* signal = malloc ( sizeof (double) * framesize );
+    fftw_complex *signal_array = fftw_alloc_complex ( framesize );
+
+    fftw_plan plan = fftw_plan_dft_1d (framesize, signal_array, freqs, FFTW_FORWARD, FFTW_ESTIMATE);
+
+    for ( i = 0; i < ntables; i++ )
+    {
+        mwh.spectrums [ i ].num_harmonics = framesize;
+        mwh.spectrums [ i ].cos_table = malloc ( sizeof (double) * framesize );
+        mwh.spectrums [ i ].sin_table = malloc ( sizeof (double) * framesize );
+
+        sf_read_double (wtfile, signal, framesize);
+
+        for(j = 0; j < framesize; j++)
+        {
+            signal_array[j][0] = signal[j];
+            signal_array[j][1] = 0;
+        }
+
+        fftw_execute (plan);
+
+        for(j = 1; j < framesize; j++)
+        {
+            mwh.spectrums [ i ].cos_table [ j - 1 ] = freqs [ j ][ 0 ] / framesize;
+            mwh.spectrums [ i ].sin_table [ j - 1 ] = freqs [ j ][ 1 ] / framesize;
+        }
+    }
+
+    sf_close ( wtfile );
+    fftw_destroy_plan (plan);
+    fftw_free (freqs);
+    fftw_free (signal_array);
+
+    return generate_morph_wavetables (&mwh, samplerate);
+}
+
+wavetable_mipmap* load_serum_wavetable (char* path, int tables_per_octave, int oversample, long samplerate)
+{
+    long framesize = get_serum_wavetable_framesize ( path );
+    long j;
+
+    wavetable_harmonics wh;
+
+    SF_INFO info = {};
+    SNDFILE* wtfile = sf_open (path, SFM_READ, &info);
+
+    fftw_complex *freqs = fftw_alloc_complex ( framesize );
+    double* signal = malloc ( sizeof (double) * framesize );
+    fftw_complex *signal_array = fftw_alloc_complex ( framesize );
+
+    fftw_plan plan = fftw_plan_dft_1d (framesize, signal_array, freqs, FFTW_FORWARD, FFTW_ESTIMATE);
+
+    wh.num_harmonics = framesize;
+    wh.cos_table = malloc ( sizeof (double) * framesize );
+    wh.sin_table = malloc ( sizeof (double) * framesize );
+
+    sf_read_double (wtfile, signal, framesize);
+
+    for(j = 0; j < framesize; j++)
+    {
+        signal_array[j][0] = signal[j];
+        signal_array[j][1] = 0;
+    }
+
+    fftw_execute (plan);
+
+    for(j = 1; j < framesize; j++)
+    {
+        wh.cos_table [ j ] = freqs [ j - 1 ][ 0 ];
+        wh.sin_table [ j ] = freqs [ j - 1 ][ 1 ];
+    }
+
+    sf_close ( wtfile );
+    fftw_destroy_plan (plan);
+    fftw_free (freqs);
+    fftw_free (signal_array);
+
+    return generate_wavetables ( &wh, oversample, tables_per_octave );
+}
 
 wavetable_mipmap* load_wavetable(const char* path, int samplerate)
 {

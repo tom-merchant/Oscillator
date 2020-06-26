@@ -13,5 +13,5 @@ add_library(Oscillator SHARED oscillator.c oscillator.h wavetable.h wavetable.c)
 add_executable(GenWavetables generate_wavetables.c)
 
 
-target_link_libraries(Oscillator m fftw3 envelope AudioUtils)
+target_link_libraries(Oscillator m fftw3 envelope AudioUtils sndfile)
 target_link_libraries(GenWavetables m Oscillator sndfile envelope AudioUtils)

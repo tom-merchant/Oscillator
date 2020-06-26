@@ -93,9 +93,15 @@ wavetable_mipmap* generate_wavetables_from_signal ( const double* signal, int nu
 
 morph_wavetable_mipmap* generate_morph_wavetables( morph_wavetable_harmonics* harmonics, long samplerate );
 
+
 void save_wavetable(wavetable_mipmap* wt, const char* path);
 
 wavetable_mipmap* load_wavetable(const char* path, int samplerate);
+
+morph_wavetable_mipmap* load_serum_morph_wavetable ( char* path, int tables_per_octave, int oversample,
+                                                     int tables_per_morph, long samplerate );
+
+wavetable_mipmap* load_serum_wavetable (char* path, int tables_per_octave, int oversample, long samplerate);
 
 void save_morph_wavetable_mipmap                          ( morph_wavetable_mipmap *mwm,          const char* path );
 void save_morph_wavetable_harmonics                       ( const morph_wavetable_harmonics *mwh, const char* path );
